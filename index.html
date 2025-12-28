@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Шалфей | Панель управления</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .font-handwritten { font-family: 'Caveat', cursive; }
+        .sage-green { color: #8A9A5B; }
+        .bg-sage-green { background-color: #8A9A5B; }
+        
+        /* Простой свитч для вкладок */
+        .tab-btn.active {
+            background-color: #8A9A5B;
+            color: white;
+        }
+    </style>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, orderBy, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA8roOb63vM_ZaBt11x8B1b132gQBiG29A",
+            authDomain: "shalf-aad46.firebaseapp.com",
+            projectId: "shalf-aad46",
+            storageBucket: "shalf-aad46.firebasestorage.app",
+            messagingSenderId: "131850620388",
+            appId: "1:131850620388:web:1afd6733af73f96af0cbf1",
+            measurementId: "G-XN22P9DJBZ"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // --- AUTH SIMLATION ---
+        const PIN = "141676"; // Простой пин-код для демонстрации. В реальности используйте Firebase Auth Email/Password
+
+        window.checkPin = () => {
+            const input = document.getElementById('admin-pin').value;
+            if (input === PIN) {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('admin-dashboard').classList.remove('hidden');
+                initApp();
+            } else {
+                alert("Неверный PIN");
+            }
+        };
+
+        function initApp() {
+            signInAnonymously(auth).then(() => {
+                console.log("Admin Logged In");
+                listenToOrders();
+                loadProducts('rentals'); // Загрузка по умолчанию
+            });
+        }
+
+        // --- ЗАКАЗЫ ---
+        function listenToOrders() {
+            const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
+            const list = document.getElementById('orders-list');
+            
+            onSnapshot(q, (snapshot) => {
+                list.innerHTML = '';
+                if(snapshot.empty) {
+                    list.innerHTML = '<p class="text-gray-500 text-center py-4">Новых заказов нет</p>';
+                    return;
+                }
+
+                snapshot.forEach(doc => {
+                    const order = doc.data();
+                    const date = new Date(order.createdAt).toLocaleString('ru-RU');
+                    const isNew = order.status === 'new';
+                    
+                    const el = document.createElement('div');
+                    el.className = `bg-white p-4 rounded-lg shadow border-l-4 ${isNew ? 'border-red-500' : 'border-green-500'} mb-3`;
+                    el.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <span class="text-xs text-gray-400">${date}</span>
+                                <h4 class="font-bold text-lg">${order.costume || 'Сообщение'}</h4>
+                                <p class="text-sm text-gray-600"><i class="fas fa-user"></i> ${order.name} | <i class="fas fa-phone"></i> ${order.phone || order.email || 'Нет контакта'}</p>
+                                ${order.dates ? `<p class="text-sm text-blue-600 bg-blue-50 inline-block px-2 rounded mt-1">Даты: ${order.dates}</p>` : ''}
+                                ${order.message ? `<p class="mt-2 text-gray-700 bg-gray-50 p-2 rounded text-sm italic">"${order.message}"</p>` : ''}
+                            </div>
+                            <div class="flex flex-col gap-2">
+                                ${isNew ? `<button onclick="window.markOrderDone('${doc.id}')" class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200">Отметить</button>` : '<span class="text-xs text-green-600 font-bold">Обработано</span>'}
+                                <button onclick="window.deleteOrder('${doc.id}')" class="text-xs text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(el);
+                });
+            });
+        }
+
+        window.markOrderDone = async (id) => {
+            await updateDoc(doc(db, "orders", id), { status: 'done' });
+        };
+        window.deleteOrder = async (id) => {
+            if(confirm('Удалить этот заказ?')) await deleteDoc(doc(db, "orders", id));
+        };
+
+        // --- ТОВАРЫ ---
+        let currentCategory = 'rentals';
+
+        window.switchTab = (tab) => {
+            currentCategory = tab;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-${tab}`).classList.add('active');
+            loadProducts(tab);
+        };
+
+        async function loadProducts(category) {
+            const container = document.getElementById('products-list');
+            container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>';
+            
+            const q = query(collection(db, "products"), orderBy("category")); // Просто фильтрацию делаем на клиенте или запрос
+            // Для упрощения, просто берем все и фильтруем, или делаем запрос с where
+            // Firestore требует индекса для where + orderBy, поэтому для простоты сделаем фильтр на клиенте если записей мало, или точный запрос
+            
+            // Точный запрос
+            const snapshot = await getDocs(query(collection(db, "products"), where("category", "==", category)));
+            
+            container.innerHTML = '';
+            if(snapshot.empty) {
+                container.innerHTML = '<div class="text-center text-gray-500">В этой категории нет товаров. Добавьте первый!</div>';
+                return;
+            }
+
+            snapshot.forEach(d => {
+                const item = d.data();
+                const el = document.createElement('div');
+                el.className = 'bg-white rounded-lg shadow p-4 flex gap-4 items-center';
+                
+                // Картинка
+                const imgUrl = Array.isArray(item.images) ? item.images[0] : item.images;
+                
+                el.innerHTML = `
+                    <div class="w-16 h-16 bg-gray-200 rounded overflow-hidden flex-shrink-0">
+                        <img src="${imgUrl || '#'}" class="w-full h-full object-cover" onerror="this.src='https://via.placeholder.com/150'">
+                    </div>
+                    <div class="flex-grow">
+                        <h4 class="font-bold text-gray-800">${item.title}</h4>
+                        <p class="text-sm text-gray-500">${item.price} руб.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="window.deleteProduct('${d.id}')" class="text-red-500 hover:bg-red-50 p-2 rounded transition"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        // Добавление товара
+        window.openAddModal = () => {
+            document.getElementById('add-modal').classList.remove('hidden');
+        };
+        window.closeAddModal = () => {
+            document.getElementById('add-modal').classList.add('hidden');
+        };
+
+        window.submitNewProduct = async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            
+            const title = form.title.value;
+            const price = form.price.value;
+            const description = form.description.value;
+            // Разбираем ссылки на картинки (одна на строку)
+            const images = form.images.value.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+
+            const newItem = {
+                category: currentCategory,
+                title,
+                price,
+                description,
+                images,
+                createdAt: new Date().toISOString()
+            };
+
+            const btn = form.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerText = "Сохранение...";
+
+            try {
+                await addDoc(collection(db, "products"), newItem);
+                closeAddModal();
+                form.reset();
+                loadProducts(currentCategory); // Перезагрузить список
+            } catch (error) {
+                alert("Ошибка: " + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Добавить товар";
+            }
+        };
+
+        window.deleteProduct = async (id) => {
+            if(confirm("Вы уверены, что хотите удалить этот товар?")) {
+                await deleteDoc(doc(db, "products", id));
+                loadProducts(currentCategory);
+            }
+        };
+
+    </script>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col overflow-hidden">
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="fixed inset-0 z-50 bg-gray-800 flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-2xl w-96 text-center">
+            <h2 class="text-2xl font-handwritten font-bold text-sage-green mb-4">Вход в Админку</h2>
+            <p class="mb-4 text-gray-500">Введите PIN</p>
+            <input type="password" id="admin-pin" class="w-full text-center text-2xl border-2 border-gray-300 rounded p-2 mb-4 focus:border-sage-green outline-none" placeholder="****">
+            <button onclick="checkPin()" class="w-full bg-sage-green text-white font-bold py-2 rounded hover:opacity-90">Войти</button>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div id="admin-dashboard" class="hidden flex h-full">
+        
+        <!-- SIDEBAR -->
+        <aside class="w-64 bg-white shadow-md z-10 hidden md:flex flex-col">
+            <div class="p-6 border-b">
+                <h1 class="text-3xl font-handwritten text-sage-green font-bold">Шалфей</h1>
+                <p class="text-xs text-gray-400">Панель управления</p>
+            </div>
+            <nav class="flex-grow p-4 space-y-2">
+                <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Меню</div>
+                <a href="#" class="block px-4 py-2 bg-sage-green/10 text-sage-green font-bold rounded">Обзор</a>
+                <a href="index.html" target="_blank" class="block px-4 py-2 text-gray-600 hover:bg-gray-50 rounded">Перейти на сайт <i class="fas fa-external-link-alt text-xs ml-1"></i></a>
+            </nav>
+        </aside>
+
+        <!-- CONTENT -->
+        <main class="flex-grow flex flex-col md:flex-row overflow-hidden">
+            
+            <!-- LEFT: ORDERS (Notifications) -->
+            <div class="w-full md:w-1/3 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
+                <div class="p-4 bg-white border-b shadow-sm sticky top-0 z-10">
+                    <h2 class="font-bold text-gray-700 text-lg"><i class="fas fa-bell text-sage-green mr-2"></i> Входящие заявки</h2>
+                </div>
+                <div id="orders-list" class="flex-grow overflow-y-auto p-4 space-y-4">
+                    <!-- Заказы будут здесь -->
+                    <div class="text-center py-10 text-gray-400">
+                        <i class="fas fa-circle-notch fa-spin"></i> Загрузка заявок...
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: PRODUCTS MANAGER -->
+            <div class="w-full md:w-2/3 bg-white flex flex-col h-full">
+                <div class="p-6 border-b flex justify-between items-center bg-white">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">Управление услугами</h2>
+                        <p class="text-sm text-gray-500">Добавляйте и редактируйте товары на сайте</p>
+                    </div>
+                    <button onclick="openAddModal()" class="bg-sage-green text-white px-4 py-2 rounded-lg shadow hover:opacity-90 transition">
+                        <i class="fas fa-plus mr-2"></i> Добавить товар
+                    </button>
+                </div>
+
+                <!-- TABS -->
+                <div class="flex px-6 border-b">
+                    <button id="btn-rentals" onclick="switchTab('rentals')" class="tab-btn active px-6 py-3 font-medium text-gray-600 border-b-2 border-transparent hover:text-sage-green transition">Аренда</button>
+                    <button id="btn-workshops" onclick="switchTab('workshops')" class="tab-btn px-6 py-3 font-medium text-gray-600 border-b-2 border-transparent hover:text-sage-green transition">Мастер-классы</button>
+                    <button id="btn-handmade" onclick="switchTab('handmade')" class="tab-btn px-6 py-3 font-medium text-gray-600 border-b-2 border-transparent hover:text-sage-green transition">Изделия</button>
+                </div>
+
+                <!-- LIST -->
+                <div id="products-list" class="flex-grow overflow-y-auto p-6 space-y-3 bg-gray-50">
+                   <!-- Список товаров -->
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- MODAL ADD PRODUCT -->
+    <div id="add-modal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden">
+            <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                <h3 class="font-bold text-lg text-gray-700">Новый товар / Услуга</h3>
+                <button onclick="closeAddModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+            </div>
+            <form onsubmit="submitNewProduct(event)" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Название</label>
+                    <input name="title" required type="text" class="w-full border rounded p-2 focus:ring-2 ring-sage-green outline-none" placeholder="Например: Костюм Ведьмы">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Цена (текстом)</label>
+                    <input name="price" required type="text" class="w-full border rounded p-2 focus:ring-2 ring-sage-green outline-none" placeholder="1000 руб. / сутки">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Описание</label>
+                    <textarea name="description" required rows="3" class="w-full border rounded p-2 focus:ring-2 ring-sage-green outline-none" placeholder="Краткое описание..."></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Ссылки на фото (по одной на строку)</label>
+                    <textarea name="images" required rows="3" class="w-full border rounded p-2 focus:ring-2 ring-sage-green outline-none font-mono text-xs" placeholder="https://..."></textarea>
+                    <p class="text-xs text-gray-400 mt-1">Используйте прямые ссылки на изображения (можно брать с GitHub raw, как раньше).</p>
+                </div>
+                <button type="submit" class="w-full bg-sage-green text-white font-bold py-3 rounded hover:opacity-90 transition">Добавить товар</button>
+            </form>
+        </div>
+    </div>
+
+</body>
+</html>
