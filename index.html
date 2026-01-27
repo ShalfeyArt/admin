@@ -7,26 +7,65 @@
     <link rel="icon" href="https://raw.githubusercontent.com/ShalfeyArt/main/refs/heads/main/shalfey.ico" type="image/x-icon">
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #F3F4F6; color: #1F2937; }
+        /* Glassmorphism Theme */
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1f2937 0%, #111827 100%); /* Темный фон для контраста */
+            color: #1F2937;
+            overflow-x: hidden;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-right: 1px solid rgba(255, 255, 255, 0.4);
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        .glass-input {
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(209, 213, 219, 0.5);
+        }
+        .glass-input:focus {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: #8A9A5B;
+        }
+
         .font-handwritten { font-family: 'Caveat', cursive; }
         .text-sage { color: #8A9A5B; }
         .bg-sage { background-color: #8A9A5B; }
-        .hover-bg-sage:hover { background-color: #76854e; }
         
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #8A9A5B; border-radius: 2px; }
         
-        .category-tab.active { background-color: #8A9A5B; color: white; }
+        .category-tab.active { background-color: #8A9A5B; color: white; shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        
+        /* Mobile transitions */
+        .sidebar-transition { transition: transform 0.3s ease-in-out; }
+        .sidebar-closed { transform: translateX(-100%); }
+        .sidebar-open { transform: translateX(0); }
+        
+        @media (min-width: 1024px) {
+            .sidebar-closed { transform: translateX(0) !important; }
+            .sidebar-overlay { display: none !important; }
+        }
     </style>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, orderBy, where, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyA8roOb63vM_ZaBt11x8B1b132gQBiG29A",
@@ -42,31 +81,67 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        let currentCategory = 'rentals'; // Значение по умолчанию
+        let currentCategory = 'rentals'; 
         let productsCache = [];
-        const PIN = "141676";
 
-        // --- AUTH ---
-        window.checkPin = () => {
-            const input = document.getElementById('admin-pin');
-            if (input.value === PIN) {
-                signInAnonymously(auth).then(() => {
-                    document.getElementById('login-screen').classList.add('hidden');
-                    document.getElementById('admin-dashboard').classList.remove('hidden');
-                    document.getElementById('admin-dashboard').classList.add('flex');
-                    initApp();
-                }).catch(err => alert("Ошибка соединения: " + err.message));
+        // --- AUTH LOGIC (Email/Password) ---
+        
+        // Проверка состояния входа
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('admin-dashboard').classList.remove('hidden');
+                document.getElementById('admin-dashboard').classList.add('flex');
+                initApp();
             } else {
-                alert("Неверный PIN");
+                document.getElementById('login-screen').classList.remove('hidden');
+                document.getElementById('admin-dashboard').classList.add('hidden');
+            }
+        });
+
+        window.login = async (e) => {
+            e.preventDefault();
+            const email = e.target.email.value;
+            const password = e.target.password.value;
+            const btn = e.target.querySelector('button');
+            
+            const originalText = btn.innerText;
+            btn.innerText = "Вход...";
+            btn.disabled = true;
+
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                // Успех - onAuthStateChanged сработает
+            } catch (err) {
+                alert("Ошибка входа: Неверный email или пароль.");
+                btn.innerText = originalText;
+                btn.disabled = false;
             }
         };
+
+        // Функция регистрации (использовать 1 раз, потом скрыть кнопку в HTML)
+        window.register = async () => {
+            const email = prompt("Введите Email для нового админа:");
+            if(!email) return;
+            const password = prompt("Введите Пароль (минимум 6 символов):");
+            if(!password) return;
+
+            try {
+                await createUserWithEmailAndPassword(auth, email, password);
+                alert("Аккаунт создан! Теперь вы можете войти.");
+            } catch(e) {
+                alert("Ошибка создания: " + e.message);
+            }
+        };
+        
+        window.logout = () => signOut(auth);
 
         function initApp() {
             listenToOrders();
             loadProducts(currentCategory);
         }
 
-        // --- ЗАЯВКИ И ОТВЕТЫ ---
+        // --- ЗАЯВКИ ---
         function listenToOrders() {
             const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
             const list = document.getElementById('orders-list');
@@ -82,7 +157,6 @@
                     const order = docSnap.data();
                     const date = new Date(order.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
                     
-                    // Цвета статусов
                     let statusClass = 'bg-gray-100 text-gray-500';
                     let statusText = 'Обработано';
                     
@@ -91,38 +165,35 @@
                     else if(order.status === 'done') { statusClass = 'bg-green-100 text-green-700'; statusText = 'Завершен'; }
 
                     const el = document.createElement('div');
-                    el.className = `bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-3 hover:shadow-md transition`;
+                    el.className = `glass-card p-4 rounded-xl mb-3 hover:bg-white/80 transition relative`;
                     
-                    // HTML карточки заказа
                     el.innerHTML = `
                         <div class="flex justify-between items-start mb-2">
-                            <span class="text-xs font-bold px-2 py-1 rounded ${statusClass}">${statusText}</span>
-                            <span class="text-xs text-gray-400">${date}</span>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${statusClass}">${statusText}</span>
+                            <span class="text-[10px] text-gray-400">${date}</span>
                         </div>
-                        <h4 class="font-bold text-gray-800">${order.costume || 'Заявка'}</h4>
-                        <div class="text-sm text-gray-600 space-y-1 mt-2">
-                            <p><i class="fas fa-user w-4 text-center text-gray-400"></i> ${order.name}</p>
-                            <p><i class="fas fa-phone w-4 text-center text-gray-400"></i> ${order.phone || order.email || '-'}</p>
-                            ${order.dates ? `<p class="text-sage"><i class="fas fa-calendar w-4 text-center"></i> ${order.dates}</p>` : ''}
+                        <h4 class="font-bold text-gray-800 text-sm">${order.costume || 'Заявка'}</h4>
+                        <div class="text-xs text-gray-600 space-y-1 mt-2">
+                            <p class="font-medium"><i class="fas fa-user w-4 text-center text-gray-400"></i> ${order.name || 'Аноним'}</p>
+                            <p><i class="fas fa-phone w-4 text-center text-gray-400"></i> <a href="tel:${order.phone}" class="hover:text-sage underline">${order.phone || '-'}</a></p>
                         </div>
                         
-                        ${order.message ? `<div class="mt-2 bg-gray-50 p-2 rounded text-sm italic border border-gray-200">"${order.message}"</div>` : ''}
+                        ${order.message ? `<div class="mt-2 bg-gray-50/50 p-2 rounded text-xs italic border border-gray-100 text-gray-600">"${order.message}"</div>` : ''}
 
-                        <!-- Блок ответа (показываем если есть ответ или если открыто поле ввода) -->
                         <div id="reply-box-${docSnap.id}" class="${order.adminReply ? 'block' : 'hidden'} mt-3 pt-3 border-t border-gray-100">
                              ${order.adminReply 
-                                ? `<p class="text-xs font-bold text-blue-600 mb-1">Ваш ответ:</p><p class="text-sm bg-blue-50 p-2 rounded text-gray-700 border border-blue-100">${order.adminReply}</p>`
-                                : `<textarea id="reply-text-${docSnap.id}" rows="2" class="w-full text-sm border rounded p-2 focus:ring-1 focus:ring-sage outline-none" placeholder="Напишите ответ клиенту..."></textarea>
-                                   <button onclick="window.sendReply('${docSnap.id}')" class="mt-2 text-xs bg-blue-500 text-white px-3 py-1.5 rounded hover:bg-blue-600 shadow-sm">Отправить ответ</button>`
+                                ? `<p class="text-[10px] font-bold text-blue-600 mb-1">Ваш ответ:</p><p class="text-xs bg-blue-50 p-2 rounded text-gray-700 border border-blue-100">${order.adminReply}</p>`
+                                : `<textarea id="reply-text-${docSnap.id}" rows="2" class="w-full text-xs border rounded p-2 focus:ring-1 focus:ring-sage outline-none bg-white/50" placeholder="Напишите ответ клиенту..."></textarea>
+                                   <button onclick="window.sendReply('${docSnap.id}')" class="mt-2 w-full text-xs bg-blue-500 text-white py-1.5 rounded hover:bg-blue-600 shadow-sm font-bold">Отправить</button>`
                              }
                         </div>
 
-                        <div class="mt-3 flex gap-2 justify-end">
-                            ${!order.adminReply ? `<button onclick="document.getElementById('reply-box-${docSnap.id}').classList.remove('hidden')" class="text-blue-500 hover:bg-blue-50 p-2 rounded text-sm transition" title="Ответить"><i class="fas fa-reply"></i></button>` : ''}
+                        <div class="mt-3 flex gap-2 justify-end border-t border-gray-100 pt-2">
+                            ${!order.adminReply ? `<button onclick="document.getElementById('reply-box-${docSnap.id}').classList.remove('hidden')" class="text-blue-500 hover:bg-blue-50 p-2 rounded text-xs transition flex-1 text-center" title="Ответить"><i class="fas fa-reply mr-1"></i>Ответ</button>` : ''}
                             
-                            ${order.status !== 'done' ? `<button onclick="window.updateStatus('${docSnap.id}', 'done')" class="text-green-500 hover:bg-green-50 p-2 rounded text-sm transition" title="Завершить"><i class="fas fa-check"></i></button>` : ''}
+                            ${order.status !== 'done' ? `<button onclick="window.updateStatus('${docSnap.id}', 'done')" class="text-green-600 hover:bg-green-50 p-2 rounded text-xs transition flex-1 text-center" title="Завершить"><i class="fas fa-check mr-1"></i>Ок</button>` : ''}
                             
-                            <button onclick="window.deleteOrder('${docSnap.id}')" class="text-red-400 hover:bg-red-50 p-2 rounded text-sm transition" title="Удалить"><i class="fas fa-trash"></i></button>
+                            <button onclick="window.deleteOrder('${docSnap.id}')" class="text-red-400 hover:bg-red-50 p-2 rounded text-xs transition flex-1 text-center" title="Удалить"><i class="fas fa-trash"></i></button>
                         </div>
                     `;
                     list.appendChild(el);
@@ -130,27 +201,16 @@
             });
         }
 
-        // Отправка ответа
         window.sendReply = async (orderId) => {
             const text = document.getElementById(`reply-text-${orderId}`).value;
             if(!text) return alert("Введите текст ответа");
-            
             try {
-                await updateDoc(doc(db, "orders", orderId), {
-                    adminReply: text,
-                    status: 'answered' // Меняем статус на "Отвечен"
-                });
-                alert("Ответ отправлен! Клиент увидит его на сайте.");
-            } catch (e) {
-                alert("Ошибка: " + e.message);
-            }
+                await updateDoc(doc(db, "orders", orderId), { adminReply: text, status: 'answered' });
+            } catch (e) { alert(e.message); }
         };
 
         window.updateStatus = async (id, status) => updateDoc(doc(db, "orders", id), { status });
-        
-        window.deleteOrder = async (id) => {
-            if(confirm('Удалить навсегда?')) await deleteDoc(doc(db, "orders", id));
-        };
+        window.deleteOrder = async (id) => { if(confirm('Удалить?')) await deleteDoc(doc(db, "orders", id)); };
 
 
         // --- ТОВАРЫ ---
@@ -173,7 +233,7 @@
                 container.innerHTML = '';
 
                 if(snapshot.empty) {
-                    container.innerHTML = '<div class="col-span-full flex flex-col items-center justify-center py-20 text-gray-400"><i class="fas fa-box-open text-6xl mb-4 opacity-30"></i><p>Здесь пока пусто.</p></div>';
+                    container.innerHTML = '<div class="col-span-full flex flex-col items-center justify-center py-20 text-gray-500"><i class="fas fa-box-open text-6xl mb-4 opacity-30"></i><p>Здесь пока пусто.</p></div>';
                     return;
                 }
 
@@ -185,30 +245,46 @@
                     const img = Array.isArray(item.images) ? item.images[0] : item.images;
                     
                     const card = document.createElement('div');
-                    card.className = 'bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden group hover:shadow-lg transition-all duration-300';
+                    card.className = 'glass-card rounded-xl overflow-hidden group hover:shadow-lg transition-all duration-300 bg-white/70';
                     card.innerHTML = `
-                        <div class="h-48 overflow-hidden relative bg-gray-100">
+                        <div class="h-40 overflow-hidden relative bg-gray-100">
                             <img src="${img}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-                            <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition duration-200 flex gap-2">
-                                <button onclick="window.openModal('${item.id}')" class="bg-white w-8 h-8 flex items-center justify-center rounded-full shadow hover:text-blue-500 transition"><i class="fas fa-pencil-alt"></i></button>
-                                <button onclick="window.deleteProduct('${item.id}')" class="bg-white w-8 h-8 flex items-center justify-center rounded-full shadow hover:text-red-500 transition"><i class="fas fa-trash"></i></button>
+                            <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition duration-300 flex items-center justify-center gap-3">
+                                <button onclick="window.openModal('${item.id}')" class="bg-white w-10 h-10 flex items-center justify-center rounded-full shadow-lg hover:text-blue-500 transition"><i class="fas fa-pencil-alt"></i></button>
+                                <button onclick="window.deleteProduct('${item.id}')" class="bg-white w-10 h-10 flex items-center justify-center rounded-full shadow-lg hover:text-red-500 transition"><i class="fas fa-trash"></i></button>
                             </div>
                         </div>
                         <div class="p-4">
-                            <h4 class="font-bold text-gray-800 truncate mb-1" title="${item.title}">${item.title}</h4>
-                            <p class="text-sage font-bold text-sm">${item.price}</p>
-                            <p class="text-xs text-gray-400 mt-2 line-clamp-2">${item.description}</p>
+                            <div class="flex justify-between items-start">
+                                <h4 class="font-bold text-gray-800 truncate text-sm flex-1 mr-2" title="${item.title}">${item.title}</h4>
+                                <span class="text-sage font-bold text-sm whitespace-nowrap">${item.price}</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2 line-clamp-2">${item.description}</p>
                         </div>
                     `;
                     container.appendChild(card);
                 });
             } catch (e) {
                 console.error(e);
-                container.innerHTML = `<div class="col-span-full text-red-500 text-center">Ошибка: ${e.message}</div>`;
             }
         }
 
-        // --- МОДАЛКА ТОВАРОВ ---
+        // --- MOBILE UI ---
+        window.toggleSidebar = () => {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            if(sidebar.classList.contains('sidebar-closed')) {
+                sidebar.classList.remove('sidebar-closed');
+                sidebar.classList.add('sidebar-open');
+                overlay.classList.remove('hidden');
+            } else {
+                sidebar.classList.add('sidebar-closed');
+                sidebar.classList.remove('sidebar-open');
+                overlay.classList.add('hidden');
+            }
+        }
+
+        // --- MODAL ---
         window.openModal = (id = null) => {
             const modal = document.getElementById('product-modal');
             const form = document.getElementById('product-form');
@@ -216,10 +292,10 @@
             
             modal.classList.remove('hidden');
             form.reset();
-            form.dataset.id = id || ''; // Сохраняем ID если это редактирование
+            form.dataset.id = id || ''; 
 
             if(id) {
-                title.innerText = "Редактировать товар";
+                title.innerText = "Редактировать";
                 const item = productsCache.find(p => p.id === id);
                 if(item) {
                     form.title.value = item.title;
@@ -229,7 +305,7 @@
                     form.images.value = imgs.join('\n');
                 }
             } else {
-                title.innerText = "Добавить новый товар";
+                title.innerText = "Новый товар";
             }
         };
 
@@ -251,7 +327,7 @@
 
             const btn = form.querySelector('button[type="submit"]');
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.innerText = 'Сохранение...';
 
             try {
                 if(id) await updateDoc(doc(db, "products", id), data);
@@ -278,85 +354,116 @@
 
     </script>
 </head>
-<body class="h-screen flex flex-col overflow-hidden">
+<body class="h-screen flex flex-col overflow-hidden bg-gray-900">
 
-    <!-- LOGIN -->
-    <div id="login-screen" class="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center p-4">
-        <div class="text-center w-full max-w-sm bg-white p-8 rounded-3xl shadow-2xl border border-gray-100">
-            <div class="w-16 h-16 bg-sage rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-green-100">
-                <i class="fas fa-leaf text-white text-2xl"></i>
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="fixed inset-0 z-[60] flex flex-col items-center justify-center p-4 bg-cover bg-center" style="background-image: url('https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?q=80&w=2074&auto=format&fit=crop');">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        
+        <div class="relative glass-card w-full max-w-sm p-8 rounded-3xl shadow-2xl text-center border-t border-white/50">
+            <div class="w-20 h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg border border-white/30">
+                <i class="fas fa-leaf text-white text-3xl"></i>
             </div>
-            <h1 class="text-4xl font-handwritten text-sage font-bold mb-2">Шалфей</h1>
-            <p class="text-gray-400 mb-6">Панель администратора</p>
-            <input type="password" id="admin-pin" placeholder="PIN" class="w-full border-2 border-gray-200 rounded-xl p-4 text-center text-2xl mb-4 focus:border-sage outline-none tracking-widest transition">
-            <button onclick="checkPin()" class="w-full bg-sage text-white font-bold py-4 rounded-xl hover:bg-opacity-90 transition shadow-lg shadow-green-200">Войти</button>
+            <h1 class="text-4xl font-handwritten text-white font-bold mb-2 drop-shadow-md">Шалфей</h1>
+            <p class="text-gray-200 mb-8 text-sm">Вход для администратора</p>
+            
+            <form onsubmit="window.login(event)" class="space-y-4">
+                <input type="email" name="email" placeholder="Email" required class="w-full bg-white/20 border border-white/30 text-white placeholder-gray-300 rounded-xl p-3 outline-none focus:bg-white/30 transition text-center">
+                <input type="password" name="password" placeholder="Пароль" required class="w-full bg-white/20 border border-white/30 text-white placeholder-gray-300 rounded-xl p-3 outline-none focus:bg-white/30 transition text-center">
+                
+                <button type="submit" class="w-full bg-sage text-white font-bold py-3 rounded-xl hover:bg-opacity-90 transition shadow-lg mt-4">Войти</button>
+            </form>
+            
+            <!-- Кнопка регистрации (скрыть после создания аккаунта!) -->
+            <button onclick="window.register()" class="mt-6 text-xs text-gray-400 underline hover:text-white">Создать аккаунт (первый вход)</button>
         </div>
     </div>
 
-    <!-- MAIN -->
-    <div id="admin-dashboard" class="hidden flex h-full">
+    <!-- MAIN DASHBOARD -->
+    <div id="admin-dashboard" class="hidden flex h-full relative">
+        
+        <!-- Mobile Sidebar Overlay -->
+        <div id="sidebar-overlay" onclick="toggleSidebar()" class="sidebar-overlay fixed inset-0 bg-black/50 z-20 hidden lg:hidden backdrop-blur-sm"></div>
+
         <!-- Sidebar -->
-        <div class="w-96 bg-white border-r flex flex-col z-20 shadow-lg">
-            <div class="p-5 border-b bg-gray-50/50">
-                <h2 class="text-2xl font-bold font-handwritten text-sage flex items-center gap-2">
-                    <i class="fas fa-inbox"></i> Заявки
+        <div id="sidebar" class="sidebar-closed lg:translate-x-0 fixed lg:static inset-y-0 left-0 w-80 glass-panel flex flex-col z-30 sidebar-transition shadow-2xl lg:shadow-none h-full">
+            <div class="p-6 border-b border-gray-200/30 bg-white/30 backdrop-blur-xl flex justify-between items-center">
+                <h2 class="text-3xl font-bold font-handwritten text-sage flex items-center gap-2">
+                    <i class="fas fa-leaf"></i> Админ
                 </h2>
+                <button onclick="toggleSidebar()" class="lg:hidden text-gray-500"><i class="fas fa-times text-xl"></i></button>
             </div>
-            <div id="orders-list" class="flex-grow overflow-y-auto p-4 bg-gray-50/30 space-y-3">
+            
+            <div class="p-4 bg-gray-50/20 border-b border-gray-200/30">
+                <h3 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 px-2">Заявки</h3>
+            </div>
+            
+            <div id="orders-list" class="flex-grow overflow-y-auto p-4 space-y-3 bg-gray-50/30">
                 <!-- Orders loaded here -->
+            </div>
+
+            <div class="p-4 border-t border-gray-200/30 bg-white/30">
+                <button onclick="window.logout()" class="w-full flex items-center justify-center gap-2 text-red-400 hover:text-red-600 transition text-sm font-bold py-2">
+                    <i class="fas fa-sign-out-alt"></i> Выйти
+                </button>
             </div>
         </div>
 
-        <!-- Content -->
-        <div class="flex-grow flex flex-col bg-gray-50 relative">
-            <header class="bg-white border-b px-8 py-5 flex justify-between items-center shadow-sm z-10 sticky top-0">
-                <div class="flex space-x-2 bg-gray-100 p-1 rounded-xl">
-                    <button id="tab-rentals" onclick="switchTab('rentals')" class="category-tab active px-6 py-2 rounded-lg font-bold transition text-sm">Аренда</button>
-                    <button id="tab-workshops" onclick="switchTab('workshops')" class="category-tab px-6 py-2 rounded-lg font-bold transition text-sm">МК</button>
-                    <button id="tab-handmade" onclick="switchTab('handmade')" class="category-tab px-6 py-2 rounded-lg font-bold transition text-sm">Изделия</button>
+        <!-- Content Area -->
+        <div class="flex-grow flex flex-col bg-gray-100/10 relative overflow-hidden">
+            <!-- Header -->
+            <header class="bg-white/60 backdrop-blur-md border-b border-white/40 px-4 md:px-8 py-4 flex justify-between items-center shadow-sm z-10 sticky top-0">
+                <div class="flex items-center gap-4">
+                    <button onclick="toggleSidebar()" class="lg:hidden p-2 rounded-lg bg-white/50 text-gray-700 shadow-sm"><i class="fas fa-bars"></i></button>
+                    <div class="flex space-x-1 bg-gray-200/50 p-1 rounded-xl overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar">
+                        <button id="tab-rentals" onclick="switchTab('rentals')" class="category-tab active px-4 py-1.5 rounded-lg font-bold transition text-xs md:text-sm whitespace-nowrap">Аренда</button>
+                        <button id="tab-workshops" onclick="switchTab('workshops')" class="category-tab px-4 py-1.5 rounded-lg font-bold transition text-xs md:text-sm whitespace-nowrap">МК</button>
+                        <button id="tab-handmade" onclick="switchTab('handmade')" class="category-tab px-4 py-1.5 rounded-lg font-bold transition text-xs md:text-sm whitespace-nowrap">Изделия</button>
+                    </div>
                 </div>
-                <button onclick="window.openModal()" class="bg-sage text-white px-6 py-2.5 rounded-xl hover:bg-opacity-90 transition shadow-lg shadow-green-100 flex items-center gap-2">
-                    <i class="fas fa-plus"></i> <span class="hidden md:inline">Добавить товар</span>
+                <button onclick="window.openModal()" class="bg-sage text-white w-10 h-10 md:w-auto md:px-4 md:py-2 rounded-xl hover:bg-opacity-90 transition shadow-lg shadow-green-100 flex items-center justify-center gap-2">
+                    <i class="fas fa-plus"></i> <span class="hidden md:inline font-bold">Товар</span>
                 </button>
             </header>
 
-            <div id="products-grid" class="flex-grow overflow-y-auto p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 content-start">
+            <!-- Grid -->
+            <div id="products-grid" class="flex-grow overflow-y-auto p-4 md:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 content-start pb-20">
                 <!-- Products loaded here -->
             </div>
         </div>
     </div>
 
-    <!-- MODAL -->
-    <div id="product-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8 transform transition-all">
-            <div class="flex justify-between items-center mb-6">
-                <h3 id="modal-title" class="text-3xl font-handwritten text-sage font-bold">Товар</h3>
-                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
-            </div>
+    <!-- PRODUCT MODAL -->
+    <div id="product-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onclick="closeModal()"></div>
+        <div class="bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl w-full max-w-lg p-6 md:p-8 relative border border-white/50 transform transition-all">
+            <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+            
+            <h3 id="modal-title" class="text-3xl font-handwritten text-sage font-bold mb-6">Товар</h3>
             
             <form id="product-form" onsubmit="submitProduct(event)" class="space-y-4">
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Название</label>
-                    <input name="title" required placeholder="Например: Осенний венок" class="w-full border-2 border-gray-100 rounded-xl p-3 outline-none focus:border-sage transition">
+                    <input name="title" required class="w-full glass-input rounded-xl p-3 outline-none transition">
                 </div>
                 
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Цена</label>
-                    <input name="price" required placeholder="1500 руб." class="w-full border-2 border-gray-100 rounded-xl p-3 outline-none focus:border-sage transition">
+                    <input name="price" required class="w-full glass-input rounded-xl p-3 outline-none transition">
                 </div>
                 
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Описание</label>
-                    <textarea name="description" required placeholder="Расскажите о товаре..." class="w-full border-2 border-gray-100 rounded-xl p-3 outline-none focus:border-sage transition resize-none" rows="3"></textarea>
+                    <textarea name="description" required class="w-full glass-input rounded-xl p-3 outline-none transition resize-none" rows="3"></textarea>
                 </div>
                 
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Фото (URL)</label>
-                    <textarea name="images" required placeholder="Вставьте ссылки на фото (каждая с новой строки)" class="w-full border-2 border-gray-100 bg-gray-50 rounded-xl p-3 outline-none focus:border-sage transition text-xs font-mono" rows="3"></textarea>
+                    <textarea name="images" required placeholder="Ссылки с новой строки" class="w-full glass-input rounded-xl p-3 outline-none transition text-xs font-mono" rows="2"></textarea>
                 </div>
                 
                 <div class="flex gap-4 pt-4">
-                    <button type="button" onclick="closeModal()" class="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl hover:bg-gray-200 transition">Отмена</button>
+                    <button type="button" onclick="closeModal()" class="flex-1 bg-gray-200/50 text-gray-600 font-bold py-3 rounded-xl hover:bg-gray-200 transition">Отмена</button>
                     <button type="submit" class="flex-1 bg-sage text-white font-bold py-3 rounded-xl hover:bg-opacity-90 transition shadow-lg shadow-green-100">Сохранить</button>
                 </div>
             </form>
